@@ -16,7 +16,7 @@ def send_to_telegram(text):
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text}
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
 
     try:
         response = requests.post(url, json=payload, timeout=5)
@@ -32,31 +32,44 @@ def handle_webhook_data(data):
     """Przetwarza dane z webhooka"""
     print("📩 Odebrano webhook:", data)
     if not data:
-        print("⚠️ Brak danych JSON w żądaniu")
-        return jsonify({'status': 'error', 'message': 'No JSON received'}), 400
+        print("⚠️ Brak danych JSON w żądaniu lub błędny format")
+        return jsonify({'status': 'error', 'message': 'Invalid or empty JSON'}), 400
 
-    message = f"📈 TradingView Alert:\n{data}"
+    # Ładne formatowanie wiadomości
+    symbol = data.get('symbol', '❓')
+    price = data.get('price', '❓')
+    condition = data.get('condition', 'No condition')
+    time = data.get('time', '❓')
+
+    message = (
+        f"📈 <b>TradingView Alert</b>\n"
+        f"Symbol: <b>{symbol}</b>\n"
+        f"Price: <b>{price}</b>\n"
+        f"Condition: {condition}\n"
+        f"Time: {time}"
+    )
+
     send_to_telegram(message)
     return jsonify({'status': 'ok'}), 200
 
 
-# Obsługa /webhook (główne wejście)
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json(silent=True)
     return handle_webhook_data(data)
 
 
-# Obsługa / (GET i POST)
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET', 'POST', 'HEAD'])
 def root():
     if request.method == 'GET':
         return "✅ TradingView Webhook → Telegram Bot działa!", 200
     elif request.method == 'POST':
         data = request.get_json(silent=True)
         return handle_webhook_data(data)
+    elif request.method == 'HEAD':
+        # Render i inne monitory wysyłają HEAD — po prostu odpowiadamy 200
+        return ("", 200, {})
 
 
 if __name__ == '__main__':
-    # Render wymaga użycia portu z ENV zmiennej 'PORT'
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
