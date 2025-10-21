@@ -9,24 +9,6 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Odbiera webhook z TradingView i przesyła dane do Telegrama"""
-    data = request.get_json(silent=True)
-    print("📩 Odebrano webhook:", data)
-
-    if not data:
-        print("⚠️ Brak danych JSON w żądaniu")
-        return jsonify({'status': 'error', 'message': 'No JSON received'}), 400
-
-    # Format wiadomości
-    message = f"📈 TradingView Alert:\n{data}"
-
-    # Wyślij do Telegrama
-    send_to_telegram(message)
-    return jsonify({'status': 'ok'}), 200
-
-
 def send_to_telegram(text):
     """Wysyła wiadomość do Telegrama"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
@@ -46,10 +28,33 @@ def send_to_telegram(text):
         print("❌ Telegram send error:", e)
 
 
-@app.route('/', methods=['GET'])
-def home():
-    """Strona testowa"""
-    return "✅ TradingView Webhook → Telegram Bot działa!", 200
+def handle_webhook_data(data):
+    """Przetwarza dane z webhooka"""
+    print("📩 Odebrano webhook:", data)
+    if not data:
+        print("⚠️ Brak danych JSON w żądaniu")
+        return jsonify({'status': 'error', 'message': 'No JSON received'}), 400
+
+    message = f"📈 TradingView Alert:\n{data}"
+    send_to_telegram(message)
+    return jsonify({'status': 'ok'}), 200
+
+
+# Obsługa /webhook (główne wejście)
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json(silent=True)
+    return handle_webhook_data(data)
+
+
+# Obsługa / (GET i POST)
+@app.route('/', methods=['GET', 'POST'])
+def root():
+    if request.method == 'GET':
+        return "✅ TradingView Webhook → Telegram Bot działa!", 200
+    elif request.method == 'POST':
+        data = request.get_json(silent=True)
+        return handle_webhook_data(data)
 
 
 if __name__ == '__main__':
