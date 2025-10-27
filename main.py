@@ -1,23 +1,36 @@
 import os
+import json
 from flask import Flask, request, jsonify
 import requests
-import json
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Wczytaj dane z Render Environment Variables
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 
-def send_to_telegram(text):
-    """Wysyła wiadomość do Telegrama"""
+def send_to_telegram(text, symbol=None):
+    """Wysyła wiadomość do Telegrama z opcjonalnym przyciskiem TradingView"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("⚠️ Missing TELEGRAM_TOKEN or CHAT_ID environment variables")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+    }
+
+    # 🔗 Dodaj przycisk "Otwórz wykres"
+    if symbol:
+        tradingview_url = f"https://www.tradingview.com/chart/?symbol={symbol.replace(':', '').replace('/', '')}"
+        payload["reply_markup"] = {
+            "inline_keyboard": [
+                [{"text": "📈 Otwórz wykres w TradingView", "url": tradingview_url}]
+            ]
+        }
 
     try:
         response = requests.post(url, json=payload, timeout=5)
@@ -30,28 +43,61 @@ def send_to_telegram(text):
 
 
 def handle_webhook_data(data):
-    """Przetwarza dane z webhooka"""
     print("📩 Odebrano webhook:", data)
+
     if not data:
-        print("⚠️ Brak danych JSON w żądaniu lub błędny format")
         return jsonify({'status': 'error', 'message': 'Invalid or empty JSON'}), 400
 
-    # Pobierz dane
     symbol = data.get('symbol', '❓')
     price = data.get('price', '❓')
-    condition = data.get('condition', 'No condition')
-    time = data.get('time', '❓')
+    condition = str(data.get('condition', '')).upper()
+    time_str = data.get('time', None)
+    interval = data.get('interval', None)
+    strategy = data.get('strategy', None)
 
-    # Ładne formatowanie wiadomości
+    # 🕒 Formatowanie czasu
+    if time_str:
+        try:
+            time_obj = datetime.strptime(time_str.replace('Z', ''), "%Y-%m-%dT%H:%M:%S")
+            time_fmt = time_obj.strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            time_fmt = time_str
+    else:
+        time_fmt = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    # 💰 Format ceny
+    try:
+        price = float(price)
+        price_fmt = f"{price:,.2f}".replace(",", " ")
+    except Exception:
+        price_fmt = price
+
+    # 🔼/🔽 Emoji dla BUY/SELL
+    if "BUY" in condition:
+        emoji = "🟢"
+        condition_fmt = f"{emoji} BUY"
+    elif "SELL" in condition:
+        emoji = "🔴"
+        condition_fmt = f"{emoji} SELL"
+    else:
+        emoji = "⚪"
+        condition_fmt = condition or "UNKNOWN"
+
+    # 📩 Wiadomość Telegram
     message = (
-        f"📈 <b>TradingView Alert</b>\n"
-        f"Symbol: <b>{symbol}</b>\n"
-        f"Price: <b>{price}</b>\n"
-        f"Condition: {condition}\n"
-        f"Time: {time}"
+        f"{emoji} <b>TradingView Alert</b>\n\n"
+        f"📊 <b>Symbol:</b> {symbol}\n"
+        f"💰 <b>Price:</b> {price_fmt}\n"
+        f"📈 <b>Condition:</b> {condition_fmt}\n"
+        f"⏰ <b>Time:</b> {time_fmt}"
     )
 
-    send_to_telegram(message)
+    if interval:
+        message += f"\n🕐 <b>Interval:</b> {interval}"
+    if strategy:
+        message += f"\n🧠 <b>Strategy:</b> {strategy}"
+
+    send_to_telegram(message, symbol)
     return jsonify({'status': 'ok'}), 200
 
 
@@ -59,7 +105,6 @@ def handle_webhook_data(data):
 def webhook():
     data = request.get_json(silent=True)
     if not data:
-        # Jeśli TradingView nie wysłało JSON-a poprawnie, spróbuj sparsować ręcznie
         try:
             data = json.loads(request.data.decode('utf-8'))
         except Exception as e:
