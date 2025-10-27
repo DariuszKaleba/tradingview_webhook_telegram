@@ -1,6 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 import requests
+import json
 
 app = Flask(__name__)
 
@@ -35,12 +36,13 @@ def handle_webhook_data(data):
         print("⚠️ Brak danych JSON w żądaniu lub błędny format")
         return jsonify({'status': 'error', 'message': 'Invalid or empty JSON'}), 400
 
-    # Ładne formatowanie wiadomości
+    # Pobierz dane
     symbol = data.get('symbol', '❓')
     price = data.get('price', '❓')
     condition = data.get('condition', 'No condition')
     time = data.get('time', '❓')
 
+    # Ładne formatowanie wiadomości
     message = (
         f"📈 <b>TradingView Alert</b>\n"
         f"Symbol: <b>{symbol}</b>\n"
@@ -56,6 +58,14 @@ def handle_webhook_data(data):
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json(silent=True)
+    if not data:
+        # Jeśli TradingView nie wysłało JSON-a poprawnie, spróbuj sparsować ręcznie
+        try:
+            data = json.loads(request.data.decode('utf-8'))
+        except Exception as e:
+            print("❌ Błąd parsowania request.data:", e)
+            print("📦 request.data =", request.data)
+            return jsonify({'status': 'error', 'message': 'Invalid data format'}), 400
     return handle_webhook_data(data)
 
 
@@ -65,9 +75,15 @@ def root():
         return "✅ TradingView Webhook → Telegram Bot działa!", 200
     elif request.method == 'POST':
         data = request.get_json(silent=True)
+        if not data:
+            try:
+                data = json.loads(request.data.decode('utf-8'))
+            except Exception as e:
+                print("❌ Błąd parsowania request.data:", e)
+                print("📦 request.data =", request.data)
+                return jsonify({'status': 'error', 'message': 'Invalid data format'}), 400
         return handle_webhook_data(data)
     elif request.method == 'HEAD':
-        # Render i inne monitory wysyłają HEAD — po prostu odpowiadamy 200
         return ("", 200, {})
 
 
